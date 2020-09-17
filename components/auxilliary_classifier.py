@@ -6,7 +6,7 @@ from allennlp.modules.token_embedders import TokenEmbedder
 from allennlp.modules import Seq2VecEncoder, LSTMSeq2VecEncoder
 
 
-class AuxilliaryClassifier(Model):
+class POGAuxilliaryClassifier(Model):
 
     def __init__(
             self,
@@ -75,6 +75,9 @@ class AuxilliaryClassifier(Model):
             label: torch.Tensor = None
     ) -> Dict[str, torch.Tensor]:
         """
+        Defines forward prop functions.
+
+        :param sentence: Input sentence.
         """
         # TODO Apply CNN and MLP to output of embedder.
         # Embedder output should be sized (batch*max_sen_len*emb_dim).
