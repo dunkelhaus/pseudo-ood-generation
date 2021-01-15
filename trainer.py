@@ -1,5 +1,6 @@
 import torch
 from allennlp.models import Model
+from typing import Optional, Union
 from allennlp.data import DataLoader
 from allennlp.training import Trainer
 
@@ -16,14 +17,14 @@ class PseudoOODGenerationTrainer(Trainer):
             validation_data_loader: DataLoader = None,
             num_epochs: int = 20,
             serialization_dir: Optional[str] = None,
-            checkpointer: Checkpointer = None,
+            checkpointer = None,
             cuda_device: Optional[Union[int, torch.device]] = None,
             grad_norm: Optional[float] = None,
             grad_clipping: Optional[float] = None,
-            learning_rate_scheduler: Optional[LearningRateScheduler] = None,
-            momentum_scheduler: Optional[MomentumScheduler] = None,
-            tensorboard_writer: TensorboardWriter = None,
-            moving_average: Optional[MovingAverage] = None,
+            learning_rate_scheduler=None,
+            momentum_scheduler=None,
+            tensorboard_writer=None,
+            moving_average=None,
             batch_callbacks: List[BatchCallback] = None,
             epoch_callbacks: List[EpochCallback] = None,
             distributed: bool = False,
@@ -33,5 +34,3 @@ class PseudoOODGenerationTrainer(Trainer):
             use_amp: bool = False,
     ):
         super().__init__(serialization_dir, cuda_device, distributed, local_rank, world_size)
-
-        
