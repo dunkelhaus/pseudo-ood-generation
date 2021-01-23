@@ -6,8 +6,8 @@ from allennlp.data import Vocabulary
 from allennlp.training.trainer import Trainer
 from models.builders import build_epoch_callbacks
 from models.builders import build_batch_callbacks
+from models.pseudo_ood_generation.classifier import POG
 from allennlp.training.trainer import GradientDescentTrainer
-from models.bert_linear.classifier import BertLinearClassifier
 from allennlp.training.optimizers import HuggingfaceAdamWOptimizer
 from allennlp.modules.text_field_embedders import TextFieldEmbedder
 from allennlp.modules.seq2vec_encoders.bert_pooler import BertPooler
@@ -74,7 +74,7 @@ def build_model(vocab: Vocabulary, wbrun: Any) -> Model:
     # encoder = PytorchSeq2VecWrapper(torch.nn.LSTM(768,20,batch_first=True))
     log.debug("Encoder built.")
 
-    return BertLinearClassifier(vocab, embedder, encoder, wbrun).cuda(0)
+    return POG(vocab, embedder, encoder, wbrun).cuda(0)
 
 
 def build_trainer(
