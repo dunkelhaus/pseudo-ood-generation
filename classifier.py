@@ -5,10 +5,10 @@ from typing import Any, Dict
 from allennlp.nn import util
 from allennlp.models import Model
 from allennlp.data import Vocabulary
-from components.encoder import POGEncoder
-from components.decoder import POGDecoder
+from components.wgan import POGGenerator
 from allennlp.data import TextFieldTensors
-from components.discriminator import POGDiscriminator
+from components.wgan import POGDiscriminator
+from components.autoencoder import POGEncoder, POGDecoder
 from allennlp.training.metrics import CategoricalAccuracy
 from allennlp.modules.token_embedders import TokenEmbedder
 from allennlp.modules import Seq2VecEncoder, LSTMSeq2VecEncoder
@@ -22,6 +22,8 @@ class POG(Model):
             vocab: Vocabulary,
             embedder: TokenEmbedder,
             encoder: Seq2VecEncoder,
+            batch_size: int,
+            embedding_dim: int,
             wbrun: Any
     ):
         super().__init__(vocab)
@@ -33,7 +35,7 @@ class POG(Model):
         self.decoder = POGDecoder()
         self.generator = POGGenerator()
         self.discriminator = POGDiscriminator()
-        self.auxilliary_classifier = POGAuxilliaryClassifier()
+        self.auxilliary_classifier = POGAuxilliaryClassifier(vocab)
         self.accuracy = CategoricalAccuracy()
         wbrun.watch(self.classifier, log=all)
         log.debug("Model init complete.")
@@ -43,20 +45,37 @@ class POG(Model):
             sentence: TextFieldTensors,
             label: torch.Tensor = None
     ) -> Dict[str, torch.Tensor]:
-        # Shape: (batch_size, num_tokens, embedding_dim)
         # log.debug(f"Forward pass starting. Sentence Dict: {sentence!r}")
+        output = dict()
 
+        # BEGIN training encoder/decoder and AC.
+        # Output Shape: (batch_size, embedding_dim)
         xi = self.embedder(sentence)
         zi = self.encoder(xi)
-        zi = zi + np.random.normal(size=zi.shape)
-        xi_prime = self.decoder(zi) # assuming it implements l_rec
-        # TODO Step 7 here
-        
+        # Below step combines step 6 and 7, since loss is computed
+        # inside the decoder, and we do not convert latent code
+        # back to a discrete set of tokens, for the
+        # "continuous approximation approach" from the paper.
+        xi_prime, output["l_rec"] = self.decoder(zi, xi)
+        # assuming we have the label, do next step
+        # TODO: Consider absent label case too.
+        _, output["l_ac"] = self.auxilliary_classifier(
+            xi_prime,
+            label
+        )
+        # END encoder/decoder and AC.
 
+        # BEGIN training discriminator.
+        epsilon = np.random.normal(size=(
+            self.batch_size,
+            self.embedding_dim
+        ))
+        self.discriminator(zi, self.generator())
+        # --- EOD 1/25 ---
 
         probs = torch.nn.functional.softmax(logits)
         # Shape: (1,)
-        output = {'probs': probs}
+        output['probs'] = probs
 
         # log.debug(f"Forward pass complete. Probabilities: {probs!r}")
 
