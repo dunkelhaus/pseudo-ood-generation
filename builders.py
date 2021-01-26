@@ -59,7 +59,11 @@ def build_model(vocab: Vocabulary, wbrun: Any) -> Model:
     # vocab_size = vocab.get_vocab_size("tokens")
 
     # TokenEmbedder object.
-    bert_embedder = PretrainedTransformerEmbedder("bert-base-uncased")
+    # train_parameters is set to false to prevent updating params.
+    bert_embedder = PretrainedTransformerEmbedder(
+        "bert-base-uncased",
+        train_parameters=False
+    )
 
     # TextFieldEmbedder that wraps TokenEmbedder objects. Each
     # TokenEmbedder output from one TokenIndexer--the data produced
@@ -70,7 +74,9 @@ def build_model(vocab: Vocabulary, wbrun: Any) -> Model:
     )
 
     log.debug("Embedder built.")
-    encoder = BertPooler("bert-base-uncased", requires_grad=True)
+    # Have set requires_grad to false for the moment, to prevent
+    # backpropping gradients to the linear layer in bert pooler.
+    encoder = BertPooler("bert-base-uncased", requires_grad=False)
     # encoder = PytorchSeq2VecWrapper(torch.nn.LSTM(768,20,batch_first=True))
     log.debug("Encoder built.")
 
