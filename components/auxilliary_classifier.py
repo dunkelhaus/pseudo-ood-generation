@@ -1,9 +1,9 @@
 import torch
-import allennlp
-import numpy as np
-from typing import List
-from allennlp.modules.token_embedders import TokenEmbedder
-from allennlp.modules import Seq2VecEncoder, LSTMSeq2VecEncoder
+from torch import nn
+from allennlp.models import Model
+from typing import Tuple, Any, Dict
+from allennlp.data import Vocabulary
+from allennlp.data import TextFieldTensors
 
 
 class POGAuxilliaryClassifier(Model):
@@ -11,15 +11,15 @@ class POGAuxilliaryClassifier(Model):
     def __init__(
             self,
             vocab: Vocabulary,
-            embedder: TokenEmbedder,
-            in_channels: int = 100,
+            wbrun: Any,
+            in_channels: int = 768,
             out_channels: int = 128,
             kernel_sizes: Tuple[int] = (2, 3, 4, 5),
-            mlp_hidden_size: int = 512,
-            wbrun: Any
+            mlp_hidden_size: int = 512
     ):
         super().__init__(vocab)
-        self.embedder = embedder
+        num_labels = vocab.get_vocab_size("labels")
+        print(f"Labels: {num_labels}.")
 
         # in_channels: the word embedding size (100d in paper).
         # out_channels: the number of feature maps (128 in paper).
@@ -62,16 +62,13 @@ class POGAuxilliaryClassifier(Model):
         )
         self.mlp3 = torch.nn.Linear(
             mlp_hidden_size,
-            mlp_hidden_size,
+            num_labels,
             bias=True
         )
 
-        num_labels = vocab.get_vocab_size("labels")
-        log.debug(f"Labels: {num_labels}.")
-
     def forward(
             self,
-            sentence: TextFieldTensors,
+            vector: torch.Tensor,
             label: torch.Tensor = None
     ) -> Dict[str, torch.Tensor]:
         """
@@ -82,7 +79,17 @@ class POGAuxilliaryClassifier(Model):
         # TODO Apply CNN and MLP to output of embedder.
         # Embedder output should be sized (batch*max_sen_len*emb_dim).
         # max_sen_len is num_tokens in embedder output (allen visual).
-        # Remember to use cross entropy loss first, and later use
-        ## the entropy regularization loss.
-        # Currently planning softmax for output activation.
+        # Remember to use cross entropy loss first.
         # NOTE Remember to apply activations to each layer (keras diff).
+        x = vector
+
+        for i in range(len(self.kernel_sizes)):
+            x = nn.functional.relu(self.cnn[i](x))
+
+        x = nn.functional.relu(self.mlp1(x))
+        x = nn.functional.relu(self.mlp2(x))
+        x = self.mlp3(x)
+
+        loss = nn.functional.cross_entropy(x, label)
+
+        return x, loss
