@@ -70,8 +70,7 @@ class POG(Model):
             self.batch_size,
             self.embedding_dim
         ))
-        self.discriminator(zi, self.generator())
-        # --- EOD 1/25 ---
+        # --- EOD 1/26 ---
 
         probs = torch.nn.functional.softmax(logits)
         # Shape: (1,)
