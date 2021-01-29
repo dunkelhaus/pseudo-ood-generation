@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from torch import nn
 
 
@@ -14,7 +13,7 @@ class POGEncoder(nn.Module):
 
     def forward(self, x):
         z = self.lstm(x)
-        epsilon = np.random.normal(size=z.shape)
+        epsilon = torch.randn(size=z.shape)
         return z + epsilon
 
 
