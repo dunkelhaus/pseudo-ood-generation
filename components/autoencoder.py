@@ -70,7 +70,7 @@ class POGDecoder(Model):
         return output
 
 
-class AutoEncoder(Model):
+class POGAutoEncoder(Model):
     """
     Trains above encoder and decoder.
     """
@@ -104,21 +104,28 @@ class AutoEncoder(Model):
         # log.debug(f"Forward pass starting. Sentence Dict: {sentence!r}")
         output = dict()
 
-        # BEGIN training encoder/decoder and AC.
-        # Output Shape: (batch_size, embedding_dim)
-        as_embedding_seq = self.embedder(example)
-        as_embedding_vec = self.seq2vec_encoder(as_embedding_seq)
+        # Output Shape: (batch_size, num_tokens, embedding_dim)
+        embedding_seq = self.embedder(example)
 
-        encoder_output = self.encoder(as_embedding_vec)
-        decoder_output = self.decoder(
-            encoder_output["encoding"],
-            as_embedding_vec
+        # TODO: Try it without the mask here once.
+        mask = util.get_text_field_mask(example)
+        # Output Shape: (batch_size, embedding_dim)
+        embedding_vec = self.seq2vec_encoder(
+            embedding_seq,
+            mask
         )
 
-        output["encoder_loss"] = encoder_output["loss"]
-        output["decoder_loss"] = decoder_output["loss"]
-        output["decoder_probs"] = decoder_output["probs"]
-        self.accuracy(output["decoder_probs"], as_embedding_vec)
+        encoder_output = self.encoder(embedding_vec)
+        output["encoder_out"] = encoder_output["encoding"]
+
+        decoder_output = self.decoder(
+            output["encoder_out"],
+            embedding_vec
+        )
+        output["loss"] = decoder_output["loss"]
+        output["decoder_out"] = decoder_output["probs"]
+
+        self.accuracy(output["decoder_out"], embedding_vec)
 
         return output
 
