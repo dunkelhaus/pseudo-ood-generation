@@ -63,7 +63,7 @@ class POGDecoder(Model):
             self.lstm(example)
         )
         output["loss"] = nn.functional.nll_loss(
-            output["pred_vec"],
+            output["probs"],
             target
         )
 
@@ -87,14 +87,8 @@ class AutoEncoder(Model):
         num_labels = vocab.get_vocab_size("labels")
         print(f"Label check in autoencoder init: {num_labels}.")
 
-        self.encoder = POGEncoder(
-            vocab=vocab,
-            wbrun=wbrun
-        )
-        self.decoder = POGDecoder(
-            vocab=vocab,
-            wbrun=wbrun
-        )
+        self.encoder = POGEncoder(vocab=vocab, wbrun=wbrun)
+        self.decoder = POGDecoder(vocab=vocab, wbrun=wbrun)
         self.accuracy = CategoricalAccuracy()
         # wbrun.watch(self.classifier, log=all)
 
