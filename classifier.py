@@ -21,7 +21,7 @@ class POG(Model):
             self,
             vocab: Vocabulary,
             embedder: TokenEmbedder,
-            encoder: Seq2VecEncoder,
+            seq2vec_encoder: Seq2VecEncoder,
             batch_size: int,
             embedding_dim: int,
             wbrun: Any
@@ -31,6 +31,7 @@ class POG(Model):
         log.debug(f"Labels: {num_labels}.")
 
         self.embedder = embedder
+        self.seq2vec_encoder = seq2vec_encoder
         self.encoder = POGEncoder()
         self.decoder = POGDecoder()
         self.generator = POGGenerator()
@@ -51,7 +52,7 @@ class POG(Model):
         # BEGIN training encoder/decoder and AC.
         # Output Shape: (batch_size, embedding_dim)
         xi = self.embedder(sentence)
-        zi = self.encoder(xi)
+        zi = self.seq2vec_encoder(xi)
         # Below step combines step 6 and 7, since loss is computed
         # inside the decoder, and we do not convert latent code
         # back to a discrete set of tokens, for the
