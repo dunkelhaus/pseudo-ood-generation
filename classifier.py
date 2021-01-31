@@ -28,7 +28,7 @@ class POG(Model):
     ):
         super().__init__(vocab)
         num_labels = vocab.get_vocab_size("labels")
-        log.debug(f"Labels: {num_labels}.")
+        print(f"Labels: {num_labels}.")
 
         self.embedder = embedder
         self.seq2vec_encoder = seq2vec_encoder
@@ -39,7 +39,7 @@ class POG(Model):
         self.auxilliary_classifier = POGAuxilliaryClassifier(vocab)
         self.accuracy = CategoricalAccuracy()
         wbrun.watch(self.classifier, log=all)
-        log.debug("Model init complete.")
+        # log.debug("Model init complete.")
 
     def forward(
             self,
