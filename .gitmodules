@@ -1,3 +1,0 @@
-[submodule ".\\pseudo-ood-generation\\wgan-gp-text"]
-	path = .\\pseudo-ood-generation\\wgan-gp-text
-	url = https://github.com/dunkelhaus/wgan-gp-text.git
