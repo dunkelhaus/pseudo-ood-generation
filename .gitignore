@@ -1,1 +1,8 @@
 components/data/*
+
+# Python metadata.
+__pycache__/
+*/__pycache/*
+*.pyc
+.pytest_cache
+/*.egg-info/
