@@ -62,6 +62,7 @@ class POGDecoder(Model):
 
         out, cell_states = self.lstm(sentence)
         # print(f"Decoder output shape: {out.shape}")
+        # print(f"Vocab size: {self.vocab.get_vocab_size()}")
         output["encoding"] = out
 
         return output
@@ -127,8 +128,9 @@ class POGAutoEncoder(Model):
             decoder_output["encoding"],
             dim=1
         )
-        # print(output["probs"].shape)
-        # print(output["probs"])
+        print(f"Output probs shape: {output['probs'].shape}")
+        print(f"Output probs shape: {output['probs'].unsqueeze(-1).shape}")
+        # print(f"Output probabilities: {output['probs']}")
         output["loss"] = nn.functional.binary_cross_entropy_with_logits(
             output["probs"],
             embedding_seq
