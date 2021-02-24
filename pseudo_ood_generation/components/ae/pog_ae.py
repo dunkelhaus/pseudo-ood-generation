@@ -92,7 +92,7 @@ class POGAutoEncoder(Model):
 
     def forward(
             self,
-            sentence: TextFieldTensors,
+            tokens: TextFieldTensors,
             label=None
     ) -> Dict[str, torch.Tensor]:
         """
@@ -105,7 +105,7 @@ class POGAutoEncoder(Model):
         # print(sentence["tokens"]["token_ids"].shape)
 
         # Output Shape: (batch_size, num_tokens, embedding_dim)
-        embedding_seq = self.embedder(sentence)
+        embedding_seq = self.embedder(tokens)
         # print(torch.max(embedding_seq), torch.min(embedding_seq))
         embedding_seq = torch.nn.functional.normalize(embedding_seq, dim=2)
         # print(torch.max(embedding_seq), torch.min(embedding_seq))
