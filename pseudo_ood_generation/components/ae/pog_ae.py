@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 from typing import Any, Dict
-from allennlp.nn import util
 from allennlp.models import Model
 from allennlp.data import Vocabulary
 from allennlp.data import TextFieldTensors
@@ -26,15 +25,17 @@ class POGEncoder(Model):
 
     def forward(
             self,
-            sentence: torch.Tensor
+            inp: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
         output = dict()
 
+        out = inp
         # print(f"Input to encooder's lstm: {sentence.shape}")
-        out, cell_states = self.lstm(sentence)
+        out, hidden = self.lstm(out)
         # print(out, out.shape)
         epsilon = torch.randn(size=out.shape).cuda(0)
         output["encoding"] = out + epsilon
+        output["hidden"] = hidden
 
         return output
 
@@ -51,19 +52,26 @@ class POGDecoder(Model):
     ):
         super().__init__(vocab)
         self.lstm = nn.LSTM(100, 768, batch_first=True)
+        self.linear = nn.Linear(
+            768,
+            self.vocab.get_vocab_size('tokens')
+        )
         # wbrun.watch(self.classifier, log=all)
 
     def forward(
             self,
-            sentence: torch.Tensor,
-            label: torch.Tensor = None
+            inp: torch.Tensor
     ) -> Dict[str, torch.Tensor]:
         output = dict()
 
-        out, cell_states = self.lstm(sentence)
-        # print(f"Decoder output shape: {out.shape}")
-        # print(f"Vocab size: {self.vocab.get_vocab_size()}")
+        out = inp
+        out, hidden = self.lstm(out)
+        out = self.linear(out)
+
+        print(f"Decoder output shape: {out.shape}")
+        print(f"Vocab size: {self.vocab.get_vocab_size('tokens')}")
         output["encoding"] = out
+        output["hidden"] = hidden
 
         return output
 
@@ -119,19 +127,21 @@ class POGAutoEncoder(Model):
         #    mask
         # )
 
+        # enc_hidden = self.encoder.initHidden(*embedding_seq.shape)
         encoder_output = self.encoder(embedding_seq)
         output["encoder_out"] = encoder_output["encoding"]
 
-        decoder_output = self.decoder(output["encoder_out"])
+        decoder_output = self.decoder(
+            output["encoder_out"]
+        )
 
         output["probs"] = nn.functional.log_softmax(
             decoder_output["encoding"],
             dim=1
         )
         print(f"Output probs shape: {output['probs'].shape}")
-        print(f"Output probs shape: {output['probs'].unsqueeze(-1).shape}")
         # print(f"Output probabilities: {output['probs']}")
-        output["loss"] = nn.functional.binary_cross_entropy_with_logits(
+        output["loss"] = nn.functional.nll_loss(
             output["probs"],
             embedding_seq
         )
