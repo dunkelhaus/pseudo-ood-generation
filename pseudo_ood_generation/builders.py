@@ -1,119 +1,34 @@
-import logging.config
-from typing import Any, Tuple
-from allennlp.models import Model
-from allennlp.data import DataLoader
-from allennlp.data import Vocabulary
-from allennlp.training.trainer import Trainer
-from pseudo_ood_generation.classifier import POG
-from allennlp.training.trainer import GradientDescentTrainer
-from allennlp.training.optimizers import HuggingfaceAdamWOptimizer
-from allennlp.modules.text_field_embedders import TextFieldEmbedder
-from allennlp.modules.seq2vec_encoders.bert_pooler import BertPooler
-from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
-from allennlp.modules.token_embedders import PretrainedTransformerEmbedder
+"""Construct supported sentence models without legacy or image dependencies."""
 
-# Logger setup.
-log = logging.getLogger(__name__)
+import torch
+from wgan_gp.models import Critic, Generator
+
+from .components.ae.pog_ae import POGAutoEncoder
+from .components.auxilliary_classifier import POGAuxiliaryClassifier
+from .components.sentence_utils import cuda_device
+from .pog import POG
+from .trainer import POGSettings, PseudoOODGenerationTrainer
 
 
-def bert_linear_builders(
-        serialization_dir: str,
-        train_loader: DataLoader,
-        dev_loader: DataLoader,
-        lr: float,
-        num_epochs: int,
-        vocab: Vocabulary,
-        wbrun: Any
-) -> Tuple[Model, Trainer]:
-    """
-    Simple wrapper for both model-specific builder fns.
-
-    :returns Model, Trainer: The Model & Trainer objects
-                                respectively.
-    """
-    model = build_model(vocab, wbrun)
-
-    trainer = build_trainer(
-        model,
-        serialization_dir,
-        train_loader,
-        dev_loader,
-        lr=lr,
-        num_epochs=num_epochs,
-        wbrun=wbrun
-    )
-
-    return model, trainer
+def build_model(generator_vocab_size, auxiliary_vocab_size, token_mapping, *,
+                embedding_dim=100, code_dim=100, noise_dim=100, decoder_hidden_dim=None,
+                gan_hidden_dim=512, gan_layers=4, num_classes=150, out_channels=128,
+                kernel_sizes=(2, 3, 4, 5), mlp_hidden_size=512, pad_id=0, bos_id=2,
+                eos_id=3, noise_std=1.0, generator_embeddings=None, auxiliary_embeddings=None,
+                device="cuda:0"):
+    """Build independent AE/auxiliary tables and fork-owned generator/critic."""
+    device = cuda_device(device)
+    mapping = torch.as_tensor(token_mapping, dtype=torch.long, device=device)
+    ae = POGAutoEncoder(generator_vocab_size, embedding_dim, code_dim, decoder_hidden_dim,
+                        pad_id, bos_id, eos_id, noise_std, generator_embeddings, device)
+    auxiliary = POGAuxiliaryClassifier(auxiliary_vocab_size, embedding_dim, num_classes,
+                                       out_channels, kernel_sizes, mlp_hidden_size, pad_id,
+                                       auxiliary_embeddings, device)
+    generator = Generator(noise_dim, code_dim, gan_hidden_dim, gan_layers, device=device)
+    critic = Critic(code_dim, gan_hidden_dim, gan_layers, device=device)
+    return POG(ae, auxiliary, generator, critic, mapping)
 
 
-def build_model(vocab: Vocabulary, wbrun: Any) -> Model:
-    """
-    Build the Model object, along with the embedder and encoder.
-
-    :param vocab: The pre-instantiated vocabulary object.
-    :return Model: The model object itself.
-    """
-    log.debug("Building the model.")
-    # vocab_size = vocab.get_vocab_size("tokens")
-
-    # TokenEmbedder object.
-    # train_parameters is set to false to prevent updating params.
-    bert_embedder = PretrainedTransformerEmbedder(
-        "bert-base-uncased",
-        train_parameters=False
-    )
-
-    # TextFieldEmbedder that wraps TokenEmbedder objects. Each
-    # TokenEmbedder output from one TokenIndexer--the data produced
-    # by a TextField is a dict {names:representations}, hence
-    # TokenEmbedders have corresponding names.
-    embedder: TextFieldEmbedder = BasicTextFieldEmbedder(
-        {"tokens": bert_embedder}
-    )
-
-    log.debug("Embedder built.")
-    # Have set requires_grad to false for the moment, to prevent
-    # backpropping gradients to the linear layer in bert pooler.
-    encoder = BertPooler("bert-base-uncased", requires_grad=False)
-    # encoder = PytorchSeq2VecWrapper(torch.nn.LSTM(768,20,batch_first=True))
-    log.debug("Encoder built.")
-
-    return POG(vocab, embedder, encoder, wbrun).cuda(0)
-
-
-def build_trainer(
-        model: Model,
-        serialization_dir: str,
-        train_loader: DataLoader,
-        dev_loader: DataLoader,
-        lr: float,
-        num_epochs: int,
-        wbrun: Any
-) -> Trainer:
-    """
-    Build the model trainer. Includes instantiating the optimizer as well.
-
-    :param model: The model object to be trained.
-    :param serialization_dir: The serialization directory to output
-            results to.
-    :param train_loader: The training data loader.
-    :param dev_loader: The dev data loader.
-    :return trainer: The Trainer object.
-    """
-    parameters = [
-        [n, p]
-        for n, p in model.named_parameters() if p.requires_grad
-    ]
-    optimizer = HuggingfaceAdamWOptimizer(parameters, lr=lr)
-    trainer = GradientDescentTrainer(
-        model=model,
-        serialization_dir=serialization_dir,
-        data_loader=train_loader,
-        validation_data_loader=dev_loader,
-        num_epochs=num_epochs,
-        optimizer=optimizer,
-        epoch_callbacks=build_epoch_callbacks(wbrun),
-        batch_callbacks=build_batch_callbacks(wbrun)
-    )
-
-    return trainer
+def build_trainer(model, settings=None, *, optimizers=None, log_callback=None):
+    return PseudoOODGenerationTrainer(model, settings or POGSettings(),
+                                      optimizers=optimizers, log_callback=log_callback)

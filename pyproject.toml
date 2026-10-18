@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pseudo-ood-generation"
+version = "0.1.0"
+description = "CUDA sentence-code pseudo-OOD generation"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = ["torch>=2.14,<2.15", "wgan-gp==0.1.0"]
+
+[tool.setuptools.packages.find]
+include = ["pseudo_ood_generation*"]
+exclude = ["pseudo_ood_generation.components.wgan-gp*"]

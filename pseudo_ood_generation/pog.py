@@ -1,93 +1,39 @@
+"""Sentence-model container; optimization belongs to the phase trainer."""
+
 import torch
-import allennlp
-import numpy as np
-from typing import Any, Dict
-from allennlp.nn import util
-from allennlp.models import Model
-from allennlp.data import Vocabulary
-from components.wgan import POGGenerator
-from allennlp.data import TextFieldTensors
-from components.wgan import POGDiscriminator
-from components.autoencoder import POGEncoder, POGDecoder
-from allennlp.training.metrics import CategoricalAccuracy
-from allennlp.modules.token_embedders import TokenEmbedder
-from allennlp.modules import Seq2VecEncoder, LSTMSeq2VecEncoder
-from components.auxilliary_classifier import POGAuxilliaryClassifier
+from torch import nn
 
 
-class POG(Model):
+class POG(nn.Module):
+    """Keep sentence models and fork-owned latent GAN modules in one checkpoint."""
 
-    def __init__(
-            self,
-            vocab: Vocabulary,
-            embedder: TokenEmbedder,
-            seq2vec_encoder: Seq2VecEncoder,
-            batch_size: int,
-            embedding_dim: int,
-            wbrun: Any
-    ):
-        super().__init__(vocab)
-        num_labels = vocab.get_vocab_size("labels")
-        print(f"Labels: {num_labels}.")
+    def __init__(self, autoencoder, auxiliary, generator, critic, token_mapping):
+        super().__init__()
+        self.autoencoder, self.auxiliary = autoencoder, auxiliary
+        self.generator, self.critic = generator, critic
+        device = autoencoder.embedding.weight.device
+        if device.type != "cuda":
+            raise ValueError("POG requires CUDA")
+        if (token_mapping.device != device or token_mapping.dtype != torch.long
+                or token_mapping.shape != (autoencoder.embedding.num_embeddings,)):
+            raise ValueError("token_mapping must be a CUDA long ID per generator token")
+        if ((token_mapping < 0) | (token_mapping >= auxiliary.embedding.num_embeddings)).any():
+            raise ValueError("token_mapping contains invalid auxiliary vocabulary IDs")
+        if token_mapping[autoencoder.pad_id].item() != auxiliary.pad_id:
+            raise ValueError("Generator PAD must map to auxiliary PAD")
+        if not (autoencoder.decoder.code_dim == generator.code_dim == critic.code_dim):
+            raise ValueError("AE, generator, and critic code dimensions must match")
+        seen = set()
+        for module in self.phase_modules.values():
+            ids = {id(p) for p in module.parameters()}
+            if ids & seen:
+                raise ValueError("Phase modules must not share parameters")
+            seen.update(ids)
+            if any(p.device != device for p in module.parameters()):
+                raise ValueError("All POG parameters must share one CUDA device")
+        self.register_buffer("token_mapping", token_mapping.detach().clone())
 
-        self.embedder = embedder
-        self.seq2vec_encoder = seq2vec_encoder
-        self.encoder = POGEncoder()
-        self.decoder = POGDecoder()
-        self.generator = POGGenerator()
-        self.discriminator = POGDiscriminator()
-        self.auxilliary_classifier = POGAuxilliaryClassifier(vocab)
-        self.accuracy = CategoricalAccuracy()
-        wbrun.watch(self.classifier, log=all)
-        # log.debug("Model init complete.")
-
-    def forward(
-            self,
-            sentence: TextFieldTensors,
-            label: torch.Tensor = None
-    ) -> Dict[str, torch.Tensor]:
-        # log.debug(f"Forward pass starting. Sentence Dict: {sentence!r}")
-        output = dict()
-
-        # BEGIN training encoder/decoder and AC.
-        # Output Shape: (batch_size, embedding_dim)
-        xi = self.embedder(sentence)
-        zi = self.seq2vec_encoder(xi)
-        # Below step combines step 6 and 7, since loss is computed
-        # inside the decoder, and we do not convert latent code
-        # back to a discrete set of tokens, for the
-        # "continuous approximation approach" from the paper.
-        xi_prime, output["l_rec"] = self.decoder(zi, xi)
-        # assuming we have the label, do next step
-        # TODO: Consider absent label case too.
-        _, output["l_ac"] = self.auxilliary_classifier(
-            xi_prime,
-            label
-        )
-        # END encoder/decoder and AC.
-
-        # BEGIN training discriminator.
-        epsilon = np.random.normal(size=(
-            self.batch_size,
-            self.embedding_dim
-        ))
-        # --- EOD 1/26 ---
-
-        probs = torch.nn.functional.softmax(logits)
-        # Shape: (1,)
-        output['probs'] = probs
-
-        # log.debug(f"Forward pass complete. Probabilities: {probs!r}")
-
-        if label is not None:
-            self.accuracy(logits, label)
-            output['loss'] = torch.nn.functional.cross_entropy(logits, label)
-            """log.debug("Calling wandb.log")
-            wandb.log({
-                "loss": output['loss'],
-                "accuracy": self.accuracy.get_metric(reset=False)
-            })"""
-        return output
-
-    def get_metrics(self, reset: bool = False) -> Dict[str, float]:
-        return {"accuracy": self.accuracy.get_metric(reset)}
+    @property
+    def phase_modules(self):
+        return {"ae": self.autoencoder, "auxiliary": self.auxiliary,
+                "generator": self.generator, "critic": self.critic}
