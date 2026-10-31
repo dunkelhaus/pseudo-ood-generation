@@ -1,3 +1,10 @@
+"""Historical AllenNLP/BERT builders, retained for reference.
+
+These builders use an earlier autoencoder interface and are outside the supported
+CUDA reproduction path. Use ``pseudo_ood_generation.builders`` to construct the
+current word-level models and trainers without the legacy dependencies.
+"""
+
 import logging.config
 from typing import Any, Tuple
 from allennlp.models import Model

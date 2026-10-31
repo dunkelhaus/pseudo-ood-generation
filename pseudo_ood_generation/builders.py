@@ -19,13 +19,37 @@ def build_model(generator_vocab_size, auxiliary_vocab_size, token_mapping, *,
     """Build independent AE/auxiliary tables and fork-owned generator/critic."""
     device = cuda_device(device)
     mapping = torch.as_tensor(token_mapping, dtype=torch.long, device=device)
-    ae = POGAutoEncoder(generator_vocab_size, embedding_dim, code_dim, decoder_hidden_dim,
-                        pad_id, bos_id, eos_id, noise_std, generator_embeddings, device)
-    auxiliary = POGAuxiliaryClassifier(auxiliary_vocab_size, embedding_dim, num_classes,
-                                       out_channels, kernel_sizes, mlp_hidden_size, pad_id,
-                                       auxiliary_embeddings, device)
-    generator = Generator(noise_dim, code_dim, gan_hidden_dim, gan_layers, device=device)
-    critic = Critic(code_dim, gan_hidden_dim, gan_layers, device=device)
+    ae = POGAutoEncoder(
+        generator_vocab_size,
+        embedding_dim=embedding_dim,
+        code_dim=code_dim,
+        decoder_hidden_dim=decoder_hidden_dim,
+        pad_id=pad_id,
+        bos_id=bos_id,
+        eos_id=eos_id,
+        noise_std=noise_std,
+        embeddings=generator_embeddings,
+        device=device,
+    )
+    auxiliary = POGAuxiliaryClassifier(
+        auxiliary_vocab_size,
+        embedding_dim=embedding_dim,
+        num_classes=num_classes,
+        out_channels=out_channels,
+        kernel_sizes=kernel_sizes,
+        mlp_hidden_size=mlp_hidden_size,
+        pad_id=pad_id,
+        embeddings=auxiliary_embeddings,
+        device=device,
+    )
+    generator = Generator(
+        noise_dim=noise_dim, code_dim=code_dim, hidden_dim=gan_hidden_dim,
+        num_layers=gan_layers, device=device,
+    )
+    critic = Critic(
+        code_dim=code_dim, hidden_dim=gan_hidden_dim, num_layers=gan_layers,
+        device=device,
+    )
     return POG(ae, auxiliary, generator, critic, mapping)
 
 

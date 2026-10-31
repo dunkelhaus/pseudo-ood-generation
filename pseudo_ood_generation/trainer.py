@@ -77,6 +77,32 @@ def negative_entropy(logits):
     return (log_probs.exp() * log_probs).sum(-1)
 
 
+def ordered_phases(settings):
+    """Return checkpoint phase names in update order, including each repeat."""
+    phases = ["reconstruction", "auxiliary"]
+    phases += [f"critic:{i}" for i in range(settings.critic_iterations)]
+    phases += ["generator_wasserstein", "generator_entropy"]
+    if settings.mode == "aepog":
+        phases += [f"dmix_reconstruction:{i}" for i in range(settings.dmix_reconstruction_iterations)]
+        phases += [f"dmix_critic:{i}" for i in range(settings.dmix_critic_iterations)]
+    return tuple(phases)
+
+
+def _same_optimizer_state(saved, restored):
+    """Compare both saved copies, allowing scalar state to move between devices."""
+    if isinstance(saved, torch.Tensor):
+        return (isinstance(restored, torch.Tensor) and saved.shape == restored.shape
+                and saved.dtype == restored.dtype
+                and torch.equal(saved.to(device=restored.device), restored))
+    if isinstance(saved, dict):
+        return (isinstance(restored, dict) and saved.keys() == restored.keys()
+                and all(_same_optimizer_state(saved[key], restored[key]) for key in saved))
+    if isinstance(saved, (list, tuple)):
+        return (type(saved) is type(restored) and len(saved) == len(restored)
+                and all(_same_optimizer_state(first, second) for first, second in zip(saved, restored)))
+    return type(saved) is type(restored) and saved == restored
+
+
 class PseudoOODGenerationTrainer:
     """Run single phases or cycles; the caller owns loaders, RNGs, and files."""
 
@@ -230,6 +256,25 @@ class PseudoOODGenerationTrainer:
                 self.baseline_updates += 1
         return self._record("generator_entropy", batch_size, result)
 
+    def run_phase(self, phase, tokens, labels, *, dmix_tokens=None, rng=None):
+        """Run one named phase without changing its batch or random stream."""
+        name = phase.split(":")[0]
+        if name == "reconstruction":
+            return self.reconstruction_step(tokens, rng=rng)
+        if name == "auxiliary":
+            return self.auxiliary_step(tokens, labels, rng=rng)
+        if name == "critic":
+            return self.critic_step(tokens, rng=rng)
+        if name == "generator_wasserstein":
+            return self.generator_wasserstein_step(tokens.shape[0], rng=rng)
+        if name == "generator_entropy":
+            return self.generator_entropy_step(tokens.shape[0], rng=rng)
+        if name == "dmix_reconstruction":
+            return self.reconstruction_step(dmix_tokens, dmix=True, rng=rng)
+        if name == "dmix_critic":
+            return self.critic_step(dmix_tokens, dmix=True, rng=rng)
+        raise ValueError(f"Unknown phase: {name}")
+
     def train_cycle(self, tokens, labels, *, dmix_tokens=None, rng=None):
         """Reuse each supplied batch for configured repeats; draw fresh noise per step."""
         if self.settings.mode == "aepog" and dmix_tokens is None:
@@ -239,31 +284,33 @@ class PseudoOODGenerationTrainer:
         # Reject labeled mappings before any phase updates.
         if dmix_tokens is not None and not isinstance(dmix_tokens, torch.Tensor):
             raise ValueError("Dmix accepts only an unlabeled token tensor")
-        records = [self.reconstruction_step(tokens, rng=rng), self.auxiliary_step(tokens, labels, rng=rng)]
-        records.extend(self.critic_step(tokens, rng=rng) for _ in range(self.settings.critic_iterations))
-        records.append(self.generator_wasserstein_step(tokens.shape[0], rng=rng))
-        records.append(self.generator_entropy_step(tokens.shape[0], rng=rng))
-        if dmix_tokens is not None:
-            records.extend(self.reconstruction_step(dmix_tokens, dmix=True, rng=rng)
-                           for _ in range(self.settings.dmix_reconstruction_iterations))
-            records.extend(self.critic_step(dmix_tokens, dmix=True, rng=rng)
-                           for _ in range(self.settings.dmix_critic_iterations))
-        return records
+        return [self.run_phase(phase, tokens, labels, dmix_tokens=dmix_tokens, rng=rng)
+                for phase in ordered_phases(self.settings)]
 
     def state_dict(self):
-        """Trainer-only state; caller separately saves model, RNG, and loader states."""
+        """Save trainer state, including the optimizer copy used by old checkpoints."""
         return {"settings": asdict(self.settings), "epoch": self.epoch,
                 "baseline": self.baseline, "baseline_updates": self.baseline_updates,
                 "update_counts": dict(self.update_counts), "sample_counts": dict(self.sample_counts),
                 "optimizers": {name: opt.state_dict() for name, opt in self.optimizers.items()}}
 
-    def load_state_dict(self, state):
+    def load_state_dict(self, state, *, restore_optimizers=True):
+        """Restore standalone state, or check optimizers restored by the caller.
+
+        The pipeline restores the top-level checkpoint optimizers first and sets
+        restore_optimizers=False. The nested copy must match and is not loaded again.
+        Existing standalone callers still restore the nested copy by default.
+        """
         if state["settings"] != asdict(self.settings):
             raise ValueError("Incompatible POG trainer settings")
         if not math.isfinite(state["baseline"]):
             raise ValueError("Non-finite policy baseline")
+        if not restore_optimizers and not _same_optimizer_state(
+                state["optimizers"], {name: opt.state_dict() for name, opt in self.optimizers.items()}):
+            raise ValueError("Conflicting top-level and trainer optimizer states")
         self.set_epoch(state["epoch"])
         self.baseline, self.baseline_updates = state["baseline"], state["baseline_updates"]
         self.update_counts, self.sample_counts = dict(state["update_counts"]), dict(state["sample_counts"])
-        for name, optimizer in self.optimizers.items():
-            optimizer.load_state_dict(state["optimizers"][name])
+        if restore_optimizers:
+            for name, optimizer in self.optimizers.items():
+                optimizer.load_state_dict(state["optimizers"][name])
